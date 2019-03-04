@@ -218,7 +218,7 @@ void analyzeResults()
         std::cout << "Total Build Time: " << totalElapsed << " sec" << std::endl;
     }
 
-    // analyze headers
+    // analyze traces
     {
         struct header_info
         {
@@ -228,6 +228,17 @@ void analyzeResults()
         };
         std::map<std::string, header_info> headers;
         std::map<std::string, double> totals_us;
+
+        struct fun_info
+        {
+            double codegen_secs = 0;
+            double optimize_secs = 0;
+            int codegen_count = 0;
+            int optimize_count = 0;
+        };
+
+        std::map<std::string, fun_info> functions;
+        std::map<std::string, double> mod_optimize_sec;
 
         std::map<std::string, double> header_folders_own_us;
 
@@ -287,16 +298,28 @@ void analyzeResults()
                 e.at("name").get_to(name);
 
                 if (e.at("args").count("detail"))
-                {
                     e.at("args").at("detail").get_to(detail);
-                    detail = QDir(QString::fromStdString(detail)).canonicalPath().toStdString();
-                }
 
                 if (QString::fromStdString(name).startsWith("Total "))
                     totals_us[name] += dur;
 
+                if (name == "CodeGen Function")
+                {
+                    functions[detail].codegen_secs += dur / 1e6;
+                    functions[detail].codegen_count++;
+                }
+                if (name == "OptFunction")
+                {
+                    functions[detail].optimize_secs += dur / 1e6;
+                    functions[detail].optimize_count++;
+                }
+                if (name == "OptModule")
+                    mod_optimize_sec[detail] += dur / 1e6;
+
                 if (name == "Source")
                 {
+                    detail = QDir(QString::fromStdString(detail)).canonicalPath().toStdString();
+
                     auto& hi = headers[detail];
                     hi.total_secs += dur / 1e6;
                     hi.own_secs += dur / 1e6;
@@ -372,16 +395,51 @@ void analyzeResults()
                 csv << kvp.first << "," << kvp.second * 1000 << "\n";
             }
         }
+        {
+            std::ofstream csv(build_dir.absoluteFilePath("ct-function.csv").toStdString());
+            csv << "function,codegen (count),codegen (total ms),optimize (count),optimize (total ms)\n";
+            for (auto const& kvp : functions)
+            {
+                auto f = kvp.first;
+                for (auto& c : f)
+                    if (c == ',')
+                        c = '_';
+                csv << f;
+                csv << "," << kvp.second.codegen_count;
+                csv << "," << kvp.second.codegen_secs * 1000;
+                csv << "," << kvp.second.optimize_count;
+                csv << "," << kvp.second.optimize_secs * 1000;
+                csv << "\n";
+            }
+        }
+        {
+            std::ofstream csv(build_dir.absoluteFilePath("ct-modules.csv").toStdString());
+            csv << "function,optimize(ms)\n";
+            for (auto const& kvp : mod_optimize_sec)
+            {
+                csv << kvp.first << "," << kvp.second * 1000 << "\n";
+            }
+        }
 
         // totals
         {
             auto totalSource = 0.0;
             auto totalSourceOwn = 0.0;
+            auto totalFunCodegen = 0.0;
+            auto totalFunOpt = 0.0;
+            auto totalModOpt = 0.0;
             for (auto const& kvp : headers)
             {
                 totalSource += kvp.second.total_secs;
                 totalSourceOwn += kvp.second.own_secs;
             }
+            for (auto const& kvp : functions)
+            {
+                totalFunCodegen += kvp.second.codegen_secs;
+                totalFunOpt += kvp.second.optimize_secs;
+            }
+            for (auto const& kvp : mod_optimize_sec)
+                totalModOpt += kvp.second;
 
             std::vector<std::pair<double, std::string>> tots;
             for (auto const& kvp : totals_us)
@@ -391,6 +449,9 @@ void analyzeResults()
             std::cout << std::endl;
             std::cout << totalSource << " sec - Total Header Parsing" << std::endl;
             std::cout << totalSourceOwn << " sec - Total Header Parsing (no transitive includes)" << std::endl;
+            std::cout << totalFunCodegen << " sec - Total Function CodeGen" << std::endl;
+            std::cout << totalFunOpt << " sec - Total Function Optimize" << std::endl;
+            std::cout << totalModOpt << " sec - Total Module Optimize" << std::endl;
             std::cout << std::endl;
             for (auto const& kvp : tots)
                 std::cout << -kvp.first / 1e6 << " sec - " << kvp.second << std::endl;
