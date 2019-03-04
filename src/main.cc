@@ -224,6 +224,7 @@ void analyzeResults()
         {
             double total_secs = 0;
             double own_secs = 0;
+            double max_secs = 0;
             int count = 0;
         };
         std::map<std::string, header_info> headers;
@@ -323,6 +324,8 @@ void analyzeResults()
                     auto& hi = headers[detail];
                     hi.total_secs += dur / 1e6;
                     hi.own_secs += dur / 1e6;
+                    if (dur / 1e6 > hi.max_secs)
+                        hi.max_secs = dur / 1e6;
                     hi.count++;
 
                     auto qd = QString::fromStdString(detail);
@@ -376,7 +379,7 @@ void analyzeResults()
         // output
         {
             std::ofstream csv(build_dir.absoluteFilePath("ct-headers.csv").toStdString());
-            csv << "file,count,own time (ms),total time (ms),avg own time(ms),avg time(ms)\n";
+            csv << "file,count,own time (ms),total time (ms),avg own time(ms),avg time(ms),max time (ms)\n";
             for (auto const& kvp : headers)
             {
                 csv << kvp.first << "," << kvp.second.count;
@@ -384,6 +387,7 @@ void analyzeResults()
                 csv << "," << kvp.second.total_secs * 1000;
                 csv << "," << kvp.second.own_secs * 1000 / kvp.second.count;
                 csv << "," << kvp.second.total_secs * 1000 / kvp.second.count;
+                csv << "," << kvp.second.max_secs * 1000;
                 csv << "\n";
             }
         }
